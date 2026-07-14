@@ -210,6 +210,234 @@ AGENT_LOOP_PATCHES = (
     ),
 )
 
+CRON_TOOL_PATCHES = (
+    (
+        "bounded recurrence schema",
+        '''    at=StringSchema(
+        "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00'). "
+        "Naive values use the tool's default timezone."
+    ),
+    job_id=StringSchema''',
+        '''    at=StringSchema(
+        "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00'). "
+        "Naive values use the tool's default timezone."
+    ),
+    until=StringSchema(
+        "Exclusive ISO end datetime for a bounded recurring task. Use with every_seconds "
+        "or cron_expr when the user says 'until/by/before a time'. Naive values use the "
+        "schedule timezone. Never encode an end time as a cron hour range."
+    ),
+    job_id=StringSchema''',
+    ),
+    (
+        "bounded recurrence parameter guidance",
+        '''        "Action-specific parameters: add requires a non-empty message plus one schedule "
+        "(every_seconds, cron_expr, or at); remove requires job_id; list only needs action. "''',
+        '''        "Action-specific parameters: add requires a non-empty message plus one schedule "
+        "(every_seconds, cron_expr, or at); recurring requests with an end time must also pass "
+        "until; remove requires job_id; list only needs action. "''',
+    ),
+    (
+        "bounded recurrence tool description",
+        '''            "Schedule reminders and recurring tasks. Actions: add, list, remove. "
+            f"If tz is omitted, cron expressions and naive ISO times default to {self._default_timezone}."''',
+        '''            "Schedule reminders and recurring tasks. Actions: add, list, remove. "
+            "For any recurring request with an end time, pass the exclusive `until` datetime; "
+            "never approximate an end time with a cron hour range. "
+            f"If tz is omitted, cron expressions and naive ISO times default to {self._default_timezone}."''',
+    ),
+    (
+        "bounded recurrence execute argument",
+        '''        at: str | None = None,
+        job_id: str | None = None,''',
+        '''        at: str | None = None,
+        until: str | None = None,
+        job_id: str | None = None,''',
+    ),
+    (
+        "bounded recurrence execute forwarding",
+        '''            return self._add_job(name, message, every_seconds, cron_expr, tz, at)''',
+        '''            return self._add_job(name, message, every_seconds, cron_expr, tz, at, until)''',
+    ),
+    (
+        "bounded recurrence add signature",
+        '''        tz: str | None,
+        at: str | None,
+    ) -> str:''',
+        '''        tz: str | None,
+        at: str | None,
+        until: str | None,
+    ) -> str:''',
+    ),
+    (
+        "bounded recurrence validation",
+        '''        if tz:
+            if err := self._validate_timezone(tz):
+                return err
+
+        # Build schedule''',
+        '''        if tz:
+            if err := self._validate_timezone(tz):
+                return err
+
+        until_ms: int | None = None
+        if until:
+            if at or not (every_seconds or cron_expr):
+                return "Error: until can only be used with every_seconds or cron_expr"
+            from zoneinfo import ZoneInfo
+
+            try:
+                until_dt = datetime.fromisoformat(until)
+            except ValueError:
+                return (
+                    f"Error: invalid ISO datetime format '{until}'. "
+                    "Expected format: YYYY-MM-DDTHH:MM:SS"
+                )
+            if until_dt.tzinfo is None:
+                until_tz = tz or self._default_timezone
+                if err := self._validate_timezone(until_tz):
+                    return err
+                until_dt = until_dt.replace(tzinfo=ZoneInfo(until_tz))
+            until_ms = int(until_dt.timestamp() * 1000)
+            if until_ms <= int(datetime.now().timestamp() * 1000):
+                return "Error: until must be in the future"
+
+        # Build schedule''',
+    ),
+    (
+        "bounded recurrence metadata",
+        '''        job = self._cron.add_job(
+            name=name or message[:30],''',
+        '''        origin_metadata = dict(self._origin_metadata.get() or {})
+        if until_ms is not None:
+            origin_metadata["_cron_until_ms"] = until_ms
+
+        job = self._cron.add_job(
+            name=name or message[:30],''',
+    ),
+    (
+        "bounded recurrence metadata forwarding",
+        '''            origin_metadata=dict(self._origin_metadata.get() or {}),
+        )
+        return f"Created job '{job.name}' (id: {job.id})"''',
+        '''            origin_metadata=origin_metadata,
+        )
+        if until_ms is not None and not job.enabled:
+            self._cron.remove_job(job.id)
+            return "Error: the recurring schedule has no execution before until"
+        if until_ms is not None:
+            return (
+                f"Created job '{job.name}' (id: {job.id}), ending before "
+                f"{self._format_timestamp(until_ms, tz or self._default_timezone)}"
+            )
+        return f"Created job '{job.name}' (id: {job.id})"''',
+    ),
+)
+
+CRON_SERVICE_PATCHES = (
+    (
+        "idempotent queued deletion",
+        '''            if job_id := params.get("job_id"):
+                jobs_map.pop(job_id)''',
+        '''            if job_id := params.get("job_id"):
+                jobs_map.pop(job_id, None)''',
+    ),
+    (
+        "bounded recurrence metadata helper",
+        '''def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _compute_next_run''',
+        '''def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _job_until_ms(job: CronJob) -> int | None:
+    """Return the exclusive end boundary for a bounded recurring job."""
+    raw = (job.payload.origin_metadata or {}).get("_cron_until_ms")
+    if isinstance(raw, bool):
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _compute_next_run''',
+    ),
+    (
+        "bounded recurrence restart handling",
+        '''            if job.enabled:
+                job.state.next_run_at_ms = _compute_next_run(job.schedule, now)''',
+        '''            if job.enabled:
+                next_run = _compute_next_run(job.schedule, now)
+                until_ms = _job_until_ms(job)
+                if until_ms is not None and (next_run is None or next_run >= until_ms):
+                    job.enabled = False
+                    job.state.next_run_at_ms = None
+                else:
+                    job.state.next_run_at_ms = next_run''',
+    ),
+    (
+        "bounded recurrence due filtering",
+        '''            now = _now_ms()
+            due_jobs = [
+                j for j in self._store.jobs
+                if j.enabled and j.state.next_run_at_ms and now >= j.state.next_run_at_ms
+            ]''',
+        '''            now = _now_ms()
+            expired_ids = {
+                j.id
+                for j in self._store.jobs
+                if j.enabled
+                and (until_ms := _job_until_ms(j)) is not None
+                and now >= until_ms
+            }
+            if expired_ids:
+                self._store.jobs = [j for j in self._store.jobs if j.id not in expired_ids]
+                for job_id in expired_ids:
+                    logger.info("Cron: removed bounded job {} at its end boundary", job_id)
+            due_jobs = [
+                j for j in self._store.jobs
+                if j.enabled and j.state.next_run_at_ms and now >= j.state.next_run_at_ms
+            ]''',
+    ),
+    (
+        "bounded recurrence next run handling",
+        '''        else:
+            # Compute next run
+            job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())''',
+        '''        else:
+            # Compute the next run, respecting an exclusive end boundary.
+            next_run = _compute_next_run(job.schedule, _now_ms())
+            until_ms = _job_until_ms(job)
+            if until_ms is not None and (next_run is None or next_run >= until_ms):
+                self._store.jobs = [j for j in self._store.jobs if j.id != job.id]
+                logger.info("Cron: completed bounded job '{}' ({})", job.name, job.id)
+            else:
+                job.state.next_run_at_ms = next_run''',
+    ),
+    (
+        "bounded recurrence add handling",
+        '''        _normalize_agent_turn_job(job)
+        self._enforce_agent_binding(job)
+        if self._running:''',
+        '''        _normalize_agent_turn_job(job)
+        self._enforce_agent_binding(job)
+        until_ms = _job_until_ms(job)
+        if (
+            job.enabled
+            and until_ms is not None
+            and (job.state.next_run_at_ms is None or job.state.next_run_at_ms >= until_ms)
+        ):
+            job.enabled = False
+            job.state.next_run_at_ms = None
+        if self._running:''',
+    ),
+)
+
 
 def _module_path(module_name: str) -> Path:
     spec = find_spec(module_name)
@@ -240,6 +468,8 @@ def _apply_patches(path: Path, patches: tuple[tuple[str, str, str], ...]) -> Non
 def main() -> None:
     _apply_patches(_module_path("nanobot.channels.feishu"), FEISHU_PATCHES)
     _apply_patches(_module_path("nanobot.agent.loop"), AGENT_LOOP_PATCHES)
+    _apply_patches(_module_path("nanobot.agent.tools.cron"), CRON_TOOL_PATCHES)
+    _apply_patches(_module_path("nanobot.cron.service"), CRON_SERVICE_PATCHES)
 
 
 if __name__ == "__main__":
