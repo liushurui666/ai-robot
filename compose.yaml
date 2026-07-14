@@ -1,0 +1,28 @@
+services:
+  nanobot:
+    build:
+      context: .
+      args:
+        NANOBOT_VERSION: "0.2.2"
+    container_name: feishu-reminder
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REMINDER_DB_PATH: /home/nanobot/.nanobot/reminder/reminder.db
+    volumes:
+      - ./data/nanobot:/home/nanobot/.nanobot
+    ports:
+      - "127.0.0.1:18790:18790"
+      - "127.0.0.1:8765:8765"
+    healthcheck:
+      test: ["CMD", "nanobot", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G

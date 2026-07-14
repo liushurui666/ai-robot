@@ -1,0 +1,64 @@
+{
+  "providers": {
+    "companyModel": {
+      "apiKey": "${MODEL_API_KEY}",
+      "apiBase": "${MODEL_API_BASE}"
+    }
+  },
+  "modelPresets": {
+    "primary": {
+      "provider": "companyModel",
+      "model": "${MODEL_NAME}"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "modelPreset": "primary",
+      "timezone": "Asia/Shanghai"
+    }
+  },
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18790
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "appId": "${FEISHU_APP_ID}",
+      "appSecret": "${FEISHU_APP_SECRET}",
+      "domain": "feishu",
+      "allowFrom": ["*"],
+      "groupPolicy": "mention",
+      "reactEmoji": "",
+      "processingCard": true,
+      "processingText": "⏳ 正在处理，请稍候…",
+      "sendProgress": false,
+      "sendToolHints": false,
+      "showReasoning": false,
+      "streaming": false
+    },
+    "websocket": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 8765,
+      "tokenIssueSecret": "${NANOBOT_WEBUI_SECRET}"
+    }
+  },
+  "tools": {
+    "restrictToWorkspace": true,
+    "exec": {
+      "enable": false
+    },
+    "mcpServers": {
+      "feishuReminder": {
+        "command": "reminder-mcp",
+        "env": {
+          "REMINDER_DB_PATH": "/home/nanobot/.nanobot/reminder/reminder.db",
+          "FEISHU_APP_ID": "${FEISHU_APP_ID}",
+          "FEISHU_APP_SECRET": "${FEISHU_APP_SECRET}",
+          "FEISHU_TARGET_SECRETS_JSON": "${FEISHU_TARGET_SECRETS_JSON}"
+        }
+      }
+    }
+  }
+}
