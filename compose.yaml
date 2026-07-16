@@ -26,3 +26,54 @@ services:
         limits:
           cpus: "1.0"
           memory: 1G
+
+  audit-admin:
+    profiles: ["local-admin"]
+    build:
+      context: .
+      args:
+        NANOBOT_VERSION: "0.2.2"
+    container_name: feishu-reminder-audit
+    restart: unless-stopped
+    entrypoint: ["reminder-audit"]
+    environment:
+      AUDIT_STATE_PATH: /home/nanobot/.nanobot
+      AUDIT_DB_PATH: /var/lib/reminder-audit/audit.db
+      AUDIT_REMOTE_URL: ${AUDIT_REMOTE_URL:-}
+      AUDIT_REMOTE_SECRET: ${AUDIT_REMOTE_SECRET:-}
+      AUDIT_ALLOW_INSECURE_REMOTE: ${AUDIT_ALLOW_INSECURE_REMOTE:-false}
+      AUDIT_ADMIN_TOKEN: ${AUDIT_ADMIN_TOKEN:-}
+      NANOBOT_WEBUI_SECRET: ${NANOBOT_WEBUI_SECRET}
+      FEISHU_APP_ID: ${FEISHU_APP_ID}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET}
+      AUDIT_RESOLVE_FEISHU_NAMES: ${AUDIT_RESOLVE_FEISHU_NAMES:-true}
+      AUDIT_COOKIE_SECURE: ${AUDIT_COOKIE_SECURE:-false}
+    volumes:
+      - ./data/nanobot:/home/nanobot/.nanobot:ro
+      - ./data/audit:/var/lib/reminder-audit
+    ports:
+      - "127.0.0.1:8780:8780"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          raise SystemExit(0 if urllib.request.urlopen('http://127.0.0.1:8780/health', timeout=3).status == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M

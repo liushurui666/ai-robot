@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from reminder_mcp.contacts import FeishuDirectory
+from reminder_mcp.contacts import FeishuDirectory, FeishuMessagePermissionError
 
 
 @pytest.mark.asyncio
@@ -80,3 +80,75 @@ def test_ambiguous_name_does_not_select_a_recipient():
     matches = FeishuDirectory.match_users(users, "alex")
 
     assert [user["open_id"] for user in matches] == ["ou_1", "ou_2"]
+
+
+@pytest.mark.asyncio
+async def test_reads_and_downloads_post_attachments(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(
+                200,
+                json={"code": 0, "tenant_access_token": "token", "expire": 7200},
+            )
+        if path.endswith("/im/v1/messages/om_test"):
+            post = {
+                "zh_cn": {
+                    "content": [
+                        [
+                            {"tag": "img", "image_key": "img_key"},
+                            {"tag": "file", "file_key": "file_key", "file_name": "名单.xlsx"},
+                        ]
+                    ]
+                }
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {"items": [{"body": {"content": json.dumps(post)}}]},
+                },
+            )
+        if "/resources/" in path:
+            return httpx.Response(
+                200,
+                content=b"original-file",
+                headers={"Content-Type": "application/octet-stream", "Content-Disposition": "attachment; filename=source.bin"},
+            )
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "secret")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    directory = FeishuDirectory(client)
+    attachments = await directory.message_attachments("om_test")
+    content, filename = await directory.download_message_attachment(
+        "om_test", "file_key", "file"
+    )
+    await client.aclose()
+
+    assert {(item["kind"], item["file_key"]) for item in attachments} == {
+        ("image", "img_key"),
+        ("file", "file_key"),
+    }
+    assert content == b"original-file"
+    assert filename == "source.bin"
+
+
+@pytest.mark.asyncio
+async def test_message_permission_error_is_explicit(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(
+                200,
+                json={"code": 0, "tenant_access_token": "token", "expire": 7200},
+            )
+        return httpx.Response(400, json={"code": 99991672, "msg": "access denied"})
+
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "secret")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    directory = FeishuDirectory(client)
+    with pytest.raises(FeishuMessagePermissionError):
+        await directory.message_attachments("om_test")
+    await client.aclose()

@@ -36,6 +36,13 @@ else
     fi
   done
 
+  audit_token=$(env_value AUDIT_ADMIN_TOKEN)
+  if is_placeholder "$audit_token"; then
+    warn 'AUDIT_ADMIN_TOKEN is not separately configured; audit admin falls back to NANOBOT_WEBUI_SECRET'
+  else
+    pass 'AUDIT_ADMIN_TOKEN is configured'
+  fi
+
   mode=$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE" 2>/dev/null || printf unknown)
   if [ "$mode" = 600 ]; then
     pass '.env mode is 600'

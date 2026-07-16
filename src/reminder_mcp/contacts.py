@@ -3,10 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
+
+
+class FeishuMessagePermissionError(RuntimeError):
+    """The Feishu app cannot read message bodies or their resources."""
 
 
 class FeishuDirectory:
@@ -154,6 +160,111 @@ class FeishuDirectory:
         self._users = list(unique.values())
         self._users_expires_at = now + self.cache_ttl_seconds
         return self._users
+
+    @staticmethod
+    def _attachment_name_from_headers(response: httpx.Response) -> str | None:
+        disposition = response.headers.get("content-disposition", "")
+        encoded = re.search(r"filename\*=UTF-8''([^;]+)", disposition, re.IGNORECASE)
+        if encoded:
+            return unquote(encoded.group(1)).strip()
+        plain = re.search(r'filename="?([^";]+)', disposition, re.IGNORECASE)
+        return plain.group(1).strip() if plain else None
+
+    @staticmethod
+    def _walk_attachment_keys(value: Any, inherited_name: str | None = None):
+        if isinstance(value, dict):
+            name = str(
+                value.get("file_name") or value.get("name") or inherited_name or ""
+            ).strip() or None
+            image_key = value.get("image_key")
+            if isinstance(image_key, str) and image_key:
+                yield {"kind": "image", "file_key": image_key, "filename": name}
+            file_key = value.get("file_key")
+            if isinstance(file_key, str) and file_key:
+                yield {"kind": "file", "file_key": file_key, "filename": name}
+            for child in value.values():
+                yield from FeishuDirectory._walk_attachment_keys(child, name)
+        elif isinstance(value, list):
+            for child in value:
+                yield from FeishuDirectory._walk_attachment_keys(child, inherited_name)
+
+    async def message_attachments(self, message_id: str) -> list[dict[str, str | None]]:
+        """Return attachment locators from one Feishu message without mutating it."""
+
+        if re.fullmatch(r"om_[A-Za-z0-9]+", message_id) is None:
+            raise ValueError("invalid Feishu message id")
+        token = await self._tenant_token()
+        response = await self.client.get(
+            f"{self.BASE_URL}/im/v1/messages/{message_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        try:
+            payload = response.json()
+        except json.JSONDecodeError:
+            response.raise_for_status()
+            raise RuntimeError("Feishu message read returned an invalid response")
+        code = payload.get("code")
+        if code == 99991672:
+            raise FeishuMessagePermissionError(
+                "Feishu app requires im:message:readonly or im:message"
+            )
+        if code != 0:
+            raise RuntimeError(f"Feishu message read failed: {payload.get('msg')}")
+        response.raise_for_status()
+
+        attachments: list[dict[str, str | None]] = []
+        seen: set[tuple[str, str]] = set()
+        for item in (payload.get("data") or {}).get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            body = item.get("body") or {}
+            raw_content = body.get("content") if isinstance(body, dict) else None
+            try:
+                content = json.loads(raw_content) if isinstance(raw_content, str) else raw_content
+            except json.JSONDecodeError:
+                continue
+            for attachment in self._walk_attachment_keys(content):
+                key = str(attachment["file_key"])
+                kind = str(attachment["kind"])
+                if (kind, key) in seen:
+                    continue
+                seen.add((kind, key))
+                attachments.append(attachment)
+        return attachments
+
+    async def download_message_attachment(
+        self,
+        message_id: str,
+        file_key: str,
+        kind: str,
+        *,
+        max_bytes: int = 100 * 1024 * 1024,
+    ) -> tuple[bytes, str | None]:
+        """Download an original Feishu message resource with a bounded size."""
+
+        if re.fullmatch(r"om_[A-Za-z0-9]+", message_id) is None:
+            raise ValueError("invalid Feishu message id")
+        if not file_key or len(file_key) > 512:
+            raise ValueError("invalid Feishu file key")
+        resource_type = "image" if kind == "image" else "file"
+        token = await self._tenant_token()
+        response = await self.client.get(
+            f"{self.BASE_URL}/im/v1/messages/{message_id}/resources/{file_key}",
+            params={"type": resource_type},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        content_type = response.headers.get("content-type", "")
+        if "json" in content_type:
+            payload = response.json()
+            if payload.get("code") == 99991672:
+                raise FeishuMessagePermissionError(
+                    "Feishu app requires im:message:readonly or im:message"
+                )
+            raise RuntimeError(f"Feishu resource download failed: {payload.get('msg')}")
+        response.raise_for_status()
+        if len(response.content) > max_bytes:
+            raise RuntimeError("Feishu attachment exceeds the local 100 MB limit")
+        return response.content, self._attachment_name_from_headers(response)
 
     @staticmethod
     def _normalize(value: str) -> str:

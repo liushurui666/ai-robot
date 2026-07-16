@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="description" content="飞书提醒助手内部审计后台" />
+    <title>助手审计后台</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <section id="loginView" class="login-shell" aria-labelledby="loginTitle">
+      <div class="login-visual" aria-hidden="true">
+        <div class="visual-grid"></div>
+        <div class="orbit orbit-one"></div>
+        <div class="orbit orbit-two"></div>
+        <div class="visual-copy">
+          <span class="eyebrow light">公司内部 · 只读审计</span>
+          <h1>让每一次对话<br />都清晰可追溯</h1>
+          <p>集中查看飞书会话、定时任务与附件上传状态。</p>
+        </div>
+      </div>
+      <div class="login-panel">
+        <form id="loginForm" class="login-card">
+          <div class="brand-mark large">R</div>
+          <span class="eyebrow">管理员入口</span>
+          <h2 id="loginTitle">登录审计后台</h2>
+          <p>请输入服务器中配置的管理员访问密码。</p>
+          <label for="password">管理员密码</label>
+          <div class="password-wrap">
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              minlength="32"
+              required
+              placeholder="请输入高强度访问密码"
+            />
+            <button id="togglePassword" class="icon-button" type="button" aria-label="显示密码">
+              <span aria-hidden="true">◉</span>
+            </button>
+          </div>
+          <div id="loginError" class="form-error" role="alert"></div>
+          <button id="loginButton" class="primary-button" type="submit">安全登录</button>
+          <div class="security-note">
+            <span class="shield" aria-hidden="true">✓</span>
+            密码仅用于换取 HttpOnly 会话，不会保存在浏览器中。
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <div id="appView" class="app-shell" hidden>
+      <aside class="app-sidebar">
+        <div class="brand">
+          <div class="brand-mark">R</div>
+          <div>
+            <strong>提醒助手</strong>
+            <span>审计与记录</span>
+          </div>
+        </div>
+        <nav class="main-nav" aria-label="主导航">
+          <button class="nav-item active" data-view="conversations">
+            <span class="nav-icon">◫</span>
+            <span>会话记录</span>
+          </button>
+          <button class="nav-item" data-view="uploads">
+            <span class="nav-icon">⇧</span>
+            <span>上传记录</span>
+            <span id="failedNavBadge" class="nav-badge" hidden>0</span>
+          </button>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="privacy-card">
+            <span class="shield dark" aria-hidden="true">✓</span>
+            <div>
+              <strong>只读模式</strong>
+              <p>不会修改聊天或定时任务</p>
+            </div>
+          </div>
+          <button id="logoutButton" class="logout-button">退出登录</button>
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="topbar">
+          <div>
+            <span class="eyebrow">内部管理</span>
+            <h1 id="pageTitle">会话记录</h1>
+          </div>
+          <div class="topbar-actions">
+            <button id="mobileConversationButton" class="secondary-button mobile-list-button">会话</button>
+            <div id="liveStatus" class="live-status" title="与服务器实时同步">
+              <span class="live-dot"></span>
+              <span>实时同步</span>
+            </div>
+            <button id="refreshButton" class="secondary-button">刷新</button>
+          </div>
+        </header>
+
+        <section id="metrics" class="metrics-grid" aria-label="概览数据">
+          <article class="metric-card accent-blue">
+            <div class="metric-icon">◫</div>
+            <div><span>会话用户</span><strong id="conversationMetric">—</strong></div>
+          </article>
+          <article class="metric-card accent-violet">
+            <div class="metric-icon">≡</div>
+            <div><span>用户消息</span><strong id="messageMetric">—</strong></div>
+          </article>
+          <article class="metric-card accent-green">
+            <div class="metric-icon">⇧</div>
+            <div><span>上传记录</span><strong id="uploadMetric">—</strong></div>
+          </article>
+          <article class="metric-card accent-orange">
+            <div class="metric-icon">!</div>
+            <div><span>上传异常</span><strong id="failedMetric">—</strong></div>
+          </article>
+        </section>
+
+        <section id="conversationsView" class="view-panel">
+          <div class="conversation-layout">
+            <aside id="conversationPane" class="conversation-pane">
+              <div class="pane-heading">
+                <div>
+                  <h2>全部会话</h2>
+                  <span id="conversationCount">载入中…</span>
+                </div>
+                <button id="closeConversationPane" class="icon-button mobile-only" aria-label="关闭会话列表">×</button>
+              </div>
+              <div class="search-wrap">
+                <span aria-hidden="true">⌕</span>
+                <input id="conversationSearch" type="search" placeholder="搜索姓名、ID 或最近内容" />
+              </div>
+              <div id="conversationList" class="conversation-list" aria-live="polite"></div>
+            </aside>
+
+            <article class="chat-panel">
+              <div id="emptyConversation" class="empty-state">
+                <div class="empty-orbit"><span>◫</span></div>
+                <h2>选择一个会话</h2>
+                <p>查看完整聊天时间线、定时触发和工具执行情况。</p>
+              </div>
+              <div id="chatContent" class="chat-content" hidden>
+                <header class="chat-header">
+                  <button id="openConversationPane" class="icon-button mobile-only" aria-label="打开会话列表">☰</button>
+                  <div id="chatAvatar" class="avatar large-avatar"></div>
+                  <div class="chat-identity">
+                    <h2 id="chatName"></h2>
+                    <span id="chatPeer"></span>
+                  </div>
+                  <div class="chat-header-meta">
+                    <span id="chatMessageCount"></span>
+                    <span id="chatUpdated"></span>
+                  </div>
+                </header>
+                <div id="historyNotice" class="history-notice" hidden>
+                  <strong>历史摘要</strong>
+                  <span>早期原文已被 nanobot 压缩，以下摘要供追溯。</span>
+                  <button id="toggleSummaries" class="text-button">展开摘要</button>
+                  <div id="summaryList" class="summary-list" hidden></div>
+                </div>
+                <div id="timeline" class="timeline"></div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="uploadsView" class="view-panel" hidden>
+          <div class="uploads-panel">
+            <div id="mediaPermissionNotice" class="permission-notice" hidden>
+              <span class="permission-icon">!</span>
+              <div>
+                <strong>还差一个飞书只读权限</strong>
+                <p>为当前应用开通 <code>im:message:readonly</code> 后，本地后台会自动补拉可追溯消息中的原图和文件。</p>
+              </div>
+            </div>
+            <div class="section-heading">
+              <div>
+                <h2>所有上传记录</h2>
+                <p>包含成功下载、下载失败和未关联到会话的文件。</p>
+              </div>
+              <div class="filter-group" role="group" aria-label="上传状态筛选">
+                <button class="filter-chip active" data-upload-status="">全部</button>
+                <button class="filter-chip" data-upload-status="available">可查看</button>
+                <button class="filter-chip" data-upload-status="failed">失败</button>
+                <button class="filter-chip" data-upload-status="missing">缺失</button>
+              </div>
+            </div>
+            <div id="uploadList" class="upload-grid"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

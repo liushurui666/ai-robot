@@ -115,6 +115,36 @@ docker compose run --rm --entrypoint reminder-admin nanobot list-targets
 
 nanobot 创建一次性 Cron。到点只生成草稿并向创建人展示预览，不会绕过人工确认直接对外发送。
 
+## 本地审计后台
+
+审计后台只在管理员电脑上运行，不需要安装到线上服务器。它通过现有 nanobot WebUI 的管理员密钥只读同步会话，线上服务不会被修改。
+
+在本地 `.env` 配置：
+
+```dotenv
+AUDIT_REMOTE_URL=http://43.135.13.58:8765
+AUDIT_ALLOW_INSECURE_REMOTE=true
+AUDIT_ADMIN_TOKEN=一个独立的32位以上随机密码
+```
+
+`AUDIT_ADMIN_TOKEN` 未设置时会临时复用 `NANOBOT_WEBUI_SECRET`。启动本地后台：
+
+```bash
+docker compose --profile local-admin up -d --build audit-admin
+```
+
+打开 [http://127.0.0.1:8780](http://127.0.0.1:8780)，用 `AUDIT_ADMIN_TOKEN` 登录。关闭：
+
+```bash
+docker compose --profile local-admin stop audit-admin
+```
+
+本地归档位于 `data/audit/`，不会提交到 Git。已经被 nanobot 压缩的旧聊天只能显示摘要；从本地后台开始同步后，已采集的逐字记录会保留在独立 SQLite 中。
+
+图片和文件会在本地后台显示缩略图或下载入口。若线上接收时附件下载失败，本地后台会尝试通过原始飞书消息补拉；需要在飞书开放平台为当前应用开通应用身份权限 `im:message:readonly`。该权限只用于读取已有消息及其附件，不会改变线上部署。
+
+> 当前线上地址是未加密 HTTP，所以需要显式设置 `AUDIT_ALLOW_INSECURE_REMOTE=true`。后续建议给线上 WebUI 加 HTTPS，再将该值改回 `false`。
+
 有截止时间的循环发送：
 
 ```text

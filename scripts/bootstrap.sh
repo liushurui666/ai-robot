@@ -15,6 +15,7 @@ case "${1:-}" in
 esac
 
 mkdir -p \
+  "$ROOT/data/audit" \
   "$STATE/workspace/skills/message-digest" \
   "$STATE/workspace/skills/direct-message" \
   "$STATE/reminder"
@@ -39,3 +40,4 @@ cp "$ROOT/config/workspace/skills/direct-message/SKILL.md" \
   "$STATE/workspace/skills/direct-message/SKILL.md"
 
 echo "Bootstrap complete. Next: edit .env, then run docker compose up -d --build"
+echo "Audit admin will listen on server localhost port 8780."
