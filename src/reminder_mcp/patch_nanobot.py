@@ -193,6 +193,21 @@ FEISHU_PATCHES = (
 
             await self._handle_message(""",
     ),
+    (
+        "collision-safe Feishu media filenames",
+        '''        if data and filename:
+            filename = self._safe_media_filename(filename, fallback_filename)
+            file_path = media_dir / filename''',
+        '''        if data and filename:
+            filename = self._safe_media_filename(filename, fallback_filename)
+            resource_key = str(
+                content_json.get("image_key") or content_json.get("file_key") or "media"
+            )
+            message_part = str(message_id or uuid.uuid4().hex)[-12:]
+            resource_part = safe_filename(resource_key[:12]) or "media"
+            filename = f"{message_part}-{resource_part}-{filename}"
+            file_path = media_dir / filename''',
+    ),
 )
 
 AGENT_LOOP_PATCHES = (
@@ -207,6 +222,28 @@ AGENT_LOOP_PATCHES = (
                         content="Sorry, I encountered an error.",
                         metadata=dict(msg.metadata or {}),
                     ))""",
+    ),
+    (
+        "deterministic image turns",
+        '''                max_tool_result_chars=self.max_tool_result_chars,
+                hook=hook,''',
+        '''                max_tool_result_chars=self.max_tool_result_chars,
+                # Vision/OCR requests should be deterministic. A high sampling
+                # temperature can turn an unreadable region into an invented
+                # description even when the image itself was delivered.
+                temperature=(
+                    0.0
+                    if any(
+                        isinstance(message.get("content"), list)
+                        and any(
+                            isinstance(block, dict) and block.get("type") == "image_url"
+                            for block in message["content"]
+                        )
+                        for message in initial_messages
+                    )
+                    else None
+                ),
+                hook=hook,''',
     ),
 )
 

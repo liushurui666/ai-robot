@@ -8,7 +8,8 @@
   "modelPresets": {
     "primary": {
       "provider": "companyModel",
-      "model": "${MODEL_NAME}"
+      "model": "qwen3.6-plus",
+      "temperature": 0.0
     }
   },
   "agents": {

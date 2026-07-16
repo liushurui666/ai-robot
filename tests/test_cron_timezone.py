@@ -35,6 +35,7 @@ async def test_naive_reminder_time_uses_configured_shanghai_timezone():
         (Path(__file__).parents[1] / "config" / "config.example.json").read_text()
     )
     timezone_name = config["agents"]["defaults"]["timezone"]
+    assert config["modelPresets"]["primary"]["temperature"] == 0.0
     assert config["channels"]["feishu"]["streaming"] is False
     assert config["channels"]["feishu"]["processingCard"] is True
     cron = CapturingCron()

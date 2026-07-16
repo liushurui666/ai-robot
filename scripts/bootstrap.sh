@@ -18,6 +18,7 @@ mkdir -p \
   "$ROOT/data/audit" \
   "$STATE/workspace/skills/message-digest" \
   "$STATE/workspace/skills/direct-message" \
+  "$STATE/workspace/skills/image-analysis" \
   "$STATE/reminder"
 
 if [ ! -f "$ROOT/.env" ]; then
@@ -38,6 +39,8 @@ cp "$ROOT/config/workspace/skills/message-digest/SKILL.md" \
   "$STATE/workspace/skills/message-digest/SKILL.md"
 cp "$ROOT/config/workspace/skills/direct-message/SKILL.md" \
   "$STATE/workspace/skills/direct-message/SKILL.md"
+cp "$ROOT/config/workspace/skills/image-analysis/SKILL.md" \
+  "$STATE/workspace/skills/image-analysis/SKILL.md"
 
 echo "Bootstrap complete. Next: edit .env, then run docker compose up -d --build"
 echo "Audit admin will listen on server localhost port 8780."
