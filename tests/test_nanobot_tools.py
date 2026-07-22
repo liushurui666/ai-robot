@@ -8,6 +8,7 @@ from nanobot.agent.tools.context import (
 )
 
 from reminder_mcp.nanobot_tools import (
+    BookFeishuMeetingTool,
     ConfirmDigestTool,
     CreateDigestDraftTool,
     RecordMessageTool,
@@ -98,3 +99,41 @@ async def test_native_mutation_rejects_missing_request_context(tmp_path, monkeyp
             content="不应写入",
             occurred_at="2026-06-12T09:00:00+08:00",
         )
+
+
+@pytest.mark.asyncio
+async def test_meeting_tool_binds_requester_identity(monkeypatch):
+    captured = {}
+
+    class FakeBooker:
+        async def book_meeting(self, **kwargs):
+            captured.update(kwargs)
+            return {"booked": True}
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("reminder_mcp.nanobot_tools.FeishuCalendarBooker", FakeBooker)
+    context = RequestContext(
+        channel="feishu",
+        chat_id="oc_source",
+        message_id="om_booking",
+        metadata={"sender_id": "ou_requester"},
+    )
+    token = bind_request_context(context)
+    try:
+        result = json.loads(
+            await BookFeishuMeetingTool().execute(
+                attendees=["大只"],
+                room="会议室一",
+                summary="与大只的会议",
+                start_time="2026-07-23T14:00:00+08:00",
+            )
+        )
+    finally:
+        reset_request_context(token)
+
+    assert result == {"booked": True}
+    assert captured["requester_open_id"] == "ou_requester"
+    assert captured["source_message_id"] == "om_booking"
+    assert captured["duration_minutes"] == 30

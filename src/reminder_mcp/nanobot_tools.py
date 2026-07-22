@@ -7,6 +7,7 @@ from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.context import current_request_context
 
 from . import server
+from .calendar_booking import FeishuCalendarBooker
 from .contacts import FeishuDirectory
 
 
@@ -71,6 +72,69 @@ class SendFeishuUserMessageTool(Tool):
     async def execute(self, recipient: str, content: str) -> str:
         _request_identity()
         return _json(await self.directory.send_to_user(recipient, content))
+
+
+class BookFeishuMeetingTool(Tool):
+    @property
+    def name(self) -> str:
+        return "book_feishu_meeting"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Book a Feishu calendar meeting only when the current user explicitly asks to "
+            "book, reserve, or schedule it. Resolve named colleagues and a physical meeting "
+            "room, check all availability, create the event, invite the requester and "
+            "colleagues, and reserve the room. Times must be ISO-8601 with timezone. Use "
+            "30 minutes when the user gives no duration. Never claim success unless booked=true."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return _schema(
+            {
+                "attendees": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "maxItems": 20,
+                },
+                "room": {"type": "string", "minLength": 1},
+                "summary": {"type": "string", "minLength": 1, "maxLength": 500},
+                "start_time": {"type": "string", "minLength": 1},
+                "duration_minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1440,
+                    "default": 30,
+                },
+            },
+            ["attendees", "room", "summary", "start_time"],
+        )
+
+    async def execute(
+        self,
+        attendees: list[str],
+        room: str,
+        summary: str,
+        start_time: str,
+        duration_minutes: int = 30,
+    ) -> str:
+        sender_id, _, message_id = _request_identity()
+        booker = FeishuCalendarBooker()
+        try:
+            return _json(
+                await booker.book_meeting(
+                    requester_open_id=sender_id,
+                    source_message_id=message_id,
+                    attendee_names=attendees,
+                    room_name=room,
+                    summary=summary,
+                    start_time=start_time,
+                    duration_minutes=duration_minutes,
+                )
+            )
+        finally:
+            await booker.close()
 
 
 class RecordMessageTool(Tool):
