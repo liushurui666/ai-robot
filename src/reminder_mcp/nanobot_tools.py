@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
-from nanobot.agent.tools.context import current_request_context
+from nanobot.agent.tools.context import ToolContext, current_request_context
 
 from . import server
 from .calendar_booking import FeishuCalendarBooker
 from .contacts import FeishuDirectory
+from .conversation_history import ConversationHistoryReader
 
 
 def _request_identity() -> tuple[str, str, str]:
@@ -180,6 +182,83 @@ class AddRoomToFeishuMeetingTool(Tool):
             )
         finally:
             await booker.close()
+
+
+class ListMyRecentConversationTool(Tool):
+    def __init__(self, sessions: Any, workspace: str | Path):
+        self.reader = ConversationHistoryReader(sessions, workspace)
+
+    @classmethod
+    def create(cls, ctx: ToolContext) -> Tool:
+        return cls(ctx.sessions, ctx.workspace)
+
+    @property
+    def name(self) -> str:
+        return "list_my_recent_conversation"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Read the current Feishu user's own private conversation with this assistant for "
+            "a bounded time range, including exact retained turns and same-session compacted "
+            "summaries. Use for requests such as summarize my work this week/today/recently. "
+            "This is read-only, identity-bound, and unavailable in group chats. It never reads "
+            "another user's conversation. Times must be ISO-8601 with timezone."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return _schema(
+            {
+                "range_start": {"type": "string", "minLength": 1},
+                "range_end": {"type": "string", "minLength": 1},
+                "max_items": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500,
+                    "default": 200,
+                },
+            },
+            ["range_start", "range_end"],
+        )
+
+    @property
+    def read_only(self) -> bool:
+        return True
+
+    async def execute(
+        self, range_start: str, range_end: str, max_items: int = 200
+    ) -> str:
+        context = current_request_context()
+        if context is None:
+            raise PermissionError("current nanobot request context is unavailable")
+        sender_id = str(
+            getattr(context, "sender_id", None)
+            or context.metadata.get("sender_id")
+            or ""
+        ).strip()
+        chat_id = str(context.chat_id or "").strip()
+        session_key = str(context.session_key or "").strip()
+        chat_type = str(context.metadata.get("chat_type") or "").strip()
+        if (
+            context.channel != "feishu"
+            or not sender_id
+            or not chat_id
+            or sender_id != chat_id
+            or session_key != f"feishu:{chat_id}"
+            or (chat_type and chat_type != "p2p")
+        ):
+            raise PermissionError(
+                "conversation review is available only in the requester's private Feishu chat"
+            )
+        return _json(
+            self.reader.list_range(
+                session_key=session_key,
+                range_start=range_start,
+                range_end=range_end,
+                max_items=max_items,
+            )
+        )
 
 
 class RecordMessageTool(Tool):

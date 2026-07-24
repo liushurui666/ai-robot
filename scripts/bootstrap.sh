@@ -19,6 +19,7 @@ mkdir -p \
   "$STATE/workspace/skills/message-digest" \
   "$STATE/workspace/skills/direct-message" \
   "$STATE/workspace/skills/calendar-booking" \
+  "$STATE/workspace/skills/conversation-review" \
   "$STATE/workspace/skills/image-analysis" \
   "$STATE/reminder"
 
@@ -42,6 +43,8 @@ cp "$ROOT/config/workspace/skills/direct-message/SKILL.md" \
   "$STATE/workspace/skills/direct-message/SKILL.md"
 cp "$ROOT/config/workspace/skills/calendar-booking/SKILL.md" \
   "$STATE/workspace/skills/calendar-booking/SKILL.md"
+cp "$ROOT/config/workspace/skills/conversation-review/SKILL.md" \
+  "$STATE/workspace/skills/conversation-review/SKILL.md"
 cp "$ROOT/config/workspace/skills/image-analysis/SKILL.md" \
   "$STATE/workspace/skills/image-analysis/SKILL.md"
 

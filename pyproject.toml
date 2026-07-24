@@ -27,6 +27,7 @@ send_feishu_user_message = "reminder_mcp.nanobot_tools:SendFeishuUserMessageTool
 record_message = "reminder_mcp.nanobot_tools:RecordMessageTool"
 update_record = "reminder_mcp.nanobot_tools:UpdateRecordTool"
 list_digest_drafts = "reminder_mcp.nanobot_tools:ListDigestDraftsTool"
+list_my_recent_conversation = "reminder_mcp.nanobot_tools:ListMyRecentConversationTool"
 create_digest_draft = "reminder_mcp.nanobot_tools:CreateDigestDraftTool"
 confirm_digest = "reminder_mcp.nanobot_tools:ConfirmDigestTool"
 cancel_digest = "reminder_mcp.nanobot_tools:CancelDigestTool"
