@@ -104,10 +104,10 @@ else
   plugin_count=$(docker compose exec -T nanobot python -c \
     'from importlib.metadata import entry_points; print(sum(1 for ep in entry_points(group="nanobot.tools") if ep.dist and ep.dist.name == "feishu-reminder-mcp"))' \
     2>/dev/null || printf 0)
-  if [ "$plugin_count" = 8 ]; then
-    pass 'eight identity-bound business tools are installed'
+  if [ "$plugin_count" = 9 ]; then
+    pass 'nine identity-bound business tools are installed'
   else
-    fail "identity-bound business tool count is $plugin_count (expected 8)"
+    fail "identity-bound business tool count is $plugin_count (expected 9)"
   fi
 
   access=$(docker compose exec -T nanobot python -c \

@@ -138,6 +138,50 @@ class BookFeishuMeetingTool(Tool):
             await booker.close()
 
 
+class AddRoomToFeishuMeetingTool(Tool):
+    @property
+    def name(self) -> str:
+        return "add_room_to_feishu_meeting"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Add a physical meeting room to a Feishu meeting previously created by "
+            "book_feishu_meeting. Use only when the current user explicitly asks to add a room "
+            "to that existing meeting. event_id must come from the prior booking tool result; "
+            "never ask the user for it and never invent it. The requester must already attend "
+            "the meeting. Check room availability and update the original event in place."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return _schema(
+            {
+                "event_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                },
+                "room": {"type": "string", "minLength": 1},
+            },
+            ["event_id", "room"],
+        )
+
+    async def execute(self, event_id: str, room: str) -> str:
+        sender_id, _, _ = _request_identity()
+        booker = FeishuCalendarBooker()
+        try:
+            return _json(
+                await booker.add_room_to_meeting(
+                    requester_open_id=sender_id,
+                    event_id=event_id,
+                    room_name=room,
+                )
+            )
+        finally:
+            await booker.close()
+
+
 class RecordMessageTool(Tool):
     @property
     def name(self) -> str:

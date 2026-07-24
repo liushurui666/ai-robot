@@ -8,6 +8,7 @@ from nanobot.agent.tools.context import (
 )
 
 from reminder_mcp.nanobot_tools import (
+    AddRoomToFeishuMeetingTool,
     BookFeishuMeetingTool,
     ConfirmDigestTool,
     CreateDigestDraftTool,
@@ -137,3 +138,41 @@ async def test_meeting_tool_binds_requester_identity(monkeypatch):
     assert captured["source_message_id"] == "om_booking"
     assert captured["room_name"] == ""
     assert captured["duration_minutes"] == 30
+
+
+@pytest.mark.asyncio
+async def test_add_room_tool_binds_requester_identity(monkeypatch):
+    captured = {}
+
+    class FakeBooker:
+        async def add_room_to_meeting(self, **kwargs):
+            captured.update(kwargs)
+            return {"updated": True}
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("reminder_mcp.nanobot_tools.FeishuCalendarBooker", FakeBooker)
+    context = RequestContext(
+        channel="feishu",
+        chat_id="oc_source",
+        message_id="om_update_room",
+        metadata={"sender_id": "ou_requester"},
+    )
+    token = bind_request_context(context)
+    try:
+        result = json.loads(
+            await AddRoomToFeishuMeetingTool().execute(
+                event_id="evt_existing",
+                room="会议室一",
+            )
+        )
+    finally:
+        reset_request_context(token)
+
+    assert result == {"updated": True}
+    assert captured == {
+        "requester_open_id": "ou_requester",
+        "event_id": "evt_existing",
+        "room_name": "会议室一",
+    }

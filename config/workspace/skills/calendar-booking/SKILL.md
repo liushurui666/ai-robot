@@ -26,3 +26,15 @@ meeting. A request to merely discuss possible times must not create an event.
 8. For `attendee_no_match`, `attendee_ambiguous`, `room_no_match`, or `room_ambiguous`, use the
    returned candidates to ask only the necessary clarification.
 9. Never ask for an open_id, room_id, calendar_id, or event_id. These are resolved by the tool.
+
+## Follow-up room changes
+
+- When the user asks to add a physical room to the meeting just created, call
+  `add_room_to_feishu_meeting` with the exact `event_id` returned by the earlier
+  `book_feishu_meeting` call and the requested room name.
+- Never create a replacement meeting merely to add a room. Update the original event in place.
+- Never ask the user for an event ID. If the exact prior booking result is not present in the
+  current conversation, explain that the meeting must be selected again rather than inventing an
+  ID.
+- When `updated=true`, report the original meeting title/time and the added room. For a conflict
+  or room lookup error, report the returned details and do not claim the event was changed.

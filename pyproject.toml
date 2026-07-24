@@ -21,6 +21,7 @@ reminder-admin = "reminder_mcp.cli:main"
 reminder-audit = "reminder_mcp.audit_web:main"
 
 [project.entry-points."nanobot.tools"]
+add_room_to_feishu_meeting = "reminder_mcp.nanobot_tools:AddRoomToFeishuMeetingTool"
 book_feishu_meeting = "reminder_mcp.nanobot_tools:BookFeishuMeetingTool"
 send_feishu_user_message = "reminder_mcp.nanobot_tools:SendFeishuUserMessageTool"
 record_message = "reminder_mcp.nanobot_tools:RecordMessageTool"

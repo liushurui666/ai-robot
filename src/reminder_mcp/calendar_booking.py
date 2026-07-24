@@ -6,6 +6,7 @@ import time
 import unicodedata
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
@@ -213,6 +214,33 @@ class FeishuCalendarBooker:
                 seen.add(open_id)
         return resolved, None
 
+    async def _resolve_room(
+        self, room_name: str
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        rooms = self.match_rooms(await self.list_rooms(), room_name)
+        if not rooms:
+            return None, {
+                "reason": "room_no_match",
+                "room": room_name,
+                "message": f"未找到会议室“{room_name}”",
+            }
+        if len(rooms) > 1:
+            return None, {
+                "reason": "room_ambiguous",
+                "room": room_name,
+                "matches": [self._room_label(item) for item in rooms[:10]],
+            }
+        room = rooms[0]
+        status = room.get("status") or room.get("room_status") or {}
+        if isinstance(status, dict) and (
+            status.get("status") is False or status.get("schedule_status") is False
+        ):
+            return None, {
+                "reason": "room_disabled",
+                "room": self._room_label(room),
+            }
+        return room, None
+
     async def _room_busy(
         self, room_id: str, start: datetime, end: datetime
     ) -> list[dict[str, Any]]:
@@ -315,32 +343,9 @@ class FeishuCalendarBooker:
 
         room: dict[str, Any] | None = None
         if room_name:
-            rooms = self.match_rooms(await self.list_rooms(), room_name)
-            if not rooms:
-                return {
-                    "booked": False,
-                    "reason": "room_no_match",
-                    "room": room_name,
-                    "message": f"未找到会议室“{room_name}”",
-                }
-            if len(rooms) > 1:
-                return {
-                    "booked": False,
-                    "reason": "room_ambiguous",
-                    "room": room_name,
-                    "matches": [self._room_label(item) for item in rooms[:10]],
-                }
-            room = rooms[0]
-            status = room.get("status") or room.get("room_status") or {}
-            if isinstance(status, dict) and (
-                status.get("status") is False
-                or status.get("schedule_status") is False
-            ):
-                return {
-                    "booked": False,
-                    "reason": "room_disabled",
-                    "room": self._room_label(room),
-                }
+            room, room_error = await self._resolve_room(room_name)
+            if room_error:
+                return {"booked": False, **room_error}
 
         participant_by_id = {
             str(user["open_id"]): self.directory._display_name(user)
@@ -461,6 +466,149 @@ class FeishuCalendarBooker:
             "room": self._room_label(room) if room else None,
             "attendees": [self.directory._display_name(user) for user in attendees],
             "room_status": booked_room.get("rsvp_status") if booked_room else None,
+            "event_id": event_id,
+            "app_link": event.get("app_link"),
+        }
+
+    async def add_room_to_meeting(
+        self,
+        *,
+        requester_open_id: str,
+        event_id: str,
+        room_name: str,
+    ) -> dict[str, Any]:
+        """Add a physical room to an app-created meeting the requester attends."""
+
+        requester_open_id = requester_open_id.strip()
+        event_id = event_id.strip()
+        room_name = room_name.strip()
+        if not requester_open_id:
+            raise PermissionError("requester identity is required")
+        if not room_name:
+            raise ValueError("room_name must not be empty")
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,200}", event_id) is None:
+            raise ValueError("invalid event_id")
+
+        calendar_id = await self._primary_calendar_id()
+        event_data = await self._request(
+            "GET",
+            f"/calendar/v4/calendars/{calendar_id}/events/{event_id}",
+            operation="查询待修改日程",
+            params={"user_id_type": "open_id"},
+        )
+        event = event_data.get("event") or {}
+        if not event:
+            raise FeishuAPIError("查询待修改日程", "missing_event", "响应没有 event")
+
+        existing_attendees = await self._paged(
+            f"/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees",
+            operation="查询日程参与人",
+            item_key="items",
+            params={"user_id_type": "open_id"},
+        )
+        requester_is_attendee = any(
+            item.get("type") == "user"
+            and str(item.get("user_id") or "") == requester_open_id
+            for item in existing_attendees
+        )
+        if not requester_is_attendee:
+            raise PermissionError("only an attendee may add a room to this meeting")
+
+        room, room_error = await self._resolve_room(room_name)
+        if room_error:
+            return {"updated": False, **room_error}
+        assert room is not None
+        room_id = str(room.get("room_id") or "")
+        if any(
+            item.get("type") == "resource"
+            and str(item.get("room_id") or "") == room_id
+            for item in existing_attendees
+        ):
+            return {
+                "updated": False,
+                "idempotent": True,
+                "reason": "room_already_added",
+                "event_id": event_id,
+                "room": self._room_label(room),
+            }
+
+        start_info = event.get("start_time") or {}
+        end_info = event.get("end_time") or {}
+        try:
+            timezone_name = str(
+                start_info.get("timezone") or end_info.get("timezone") or "Asia/Shanghai"
+            )
+            event_timezone = ZoneInfo(timezone_name)
+            start = datetime.fromtimestamp(
+                int(start_info["timestamp"]), tz=event_timezone
+            )
+            end = datetime.fromtimestamp(int(end_info["timestamp"]), tz=event_timezone)
+        except (KeyError, TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+            raise FeishuAPIError(
+                "查询待修改日程", "invalid_event_time", "日程时间无效"
+            ) from exc
+
+        room_busy = await self._room_busy(room_id, start, end)
+        if room_busy:
+            return {
+                "updated": False,
+                "reason": "time_conflict",
+                "start_time": start.isoformat(timespec="seconds"),
+                "end_time": end.isoformat(timespec="seconds"),
+                "conflicts": [
+                    {
+                        "type": "room",
+                        "name": self._room_label(room),
+                        "busy": self._busy_intervals(room_busy),
+                    }
+                ],
+            }
+
+        added = await self._request(
+            "POST",
+            f"/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees",
+            operation="追加会议室",
+            params={"user_id_type": "open_id"},
+            json={
+                "attendees": [{"type": "resource", "room_id": room_id}],
+                "need_notification": True,
+            },
+        )
+        booked_room = next(
+            (
+                item
+                for item in added.get("attendees") or []
+                if item.get("type") == "resource"
+                and str(item.get("room_id") or "") == room_id
+            ),
+            None,
+        )
+        if booked_room is None or booked_room.get("rsvp_status") == "decline":
+            attendee_id = str((booked_room or {}).get("attendee_id") or "")
+            if attendee_id:
+                try:
+                    await self._request(
+                        "POST",
+                        f"/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees/batch_delete",
+                        operation="清理未成功预订的会议室",
+                        params={"user_id_type": "open_id"},
+                        json={"attendee_ids": [attendee_id], "need_notification": False},
+                    )
+                except Exception:
+                    pass
+            return {
+                "updated": False,
+                "reason": "room_declined",
+                "room": self._room_label(room),
+            }
+
+        return {
+            "updated": True,
+            "summary": str(event.get("summary") or ""),
+            "start_time": start.isoformat(timespec="seconds"),
+            "end_time": end.isoformat(timespec="seconds"),
+            "room": self._room_label(room),
+            "room_status": booked_room.get("rsvp_status"),
             "event_id": event_id,
             "app_link": event.get("app_link"),
         }
