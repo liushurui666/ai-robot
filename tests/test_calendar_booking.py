@@ -237,6 +237,84 @@ async def test_conflict_prevents_event_creation(monkeypatch):
     assert created is False
 
 
+@pytest.mark.asyncio
+async def test_books_meeting_without_room_and_skips_room_apis(monkeypatch):
+    attendee_payload = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attendee_payload
+        path = request.url.path
+        if "/meeting_room/" in path:
+            raise AssertionError(f"room API must not be called: {request.url}")
+        common = _base_response(request)
+        if common is not None:
+            return common
+        payload = json.loads(request.content) if request.content else {}
+        if path.endswith("/calendar/v4/freebusy/batch"):
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "freebusy_lists": [
+                            {"user_id": user_id, "freebusy_items": []}
+                            for user_id in payload["user_ids"]
+                        ]
+                    },
+                },
+            )
+        if path.endswith("/calendar/v4/calendars"):
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "has_more": False,
+                        "calendar_list": [
+                            {
+                                "calendar_id": "cal_primary",
+                                "type": "primary",
+                                "role": "owner",
+                            }
+                        ],
+                    },
+                },
+            )
+        if path.endswith("/events"):
+            return httpx.Response(
+                200,
+                json={"code": 0, "data": {"event": {"event_id": "evt_no_room"}}},
+            )
+        if path.endswith("/events/evt_no_room/attendees"):
+            attendee_payload = payload
+            return httpx.Response(
+                200,
+                json={"code": 0, "data": {"attendees": []}},
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "secret")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    booker = FeishuCalendarBooker(client)
+
+    result = await booker.book_meeting(
+        requester_open_id="ou_requester",
+        source_message_id="om_no_room",
+        attendee_names=["大只"],
+        summary="数据产品工作规划对齐",
+        start_time="2026-07-24T16:30:00+08:00",
+    )
+    await client.aclose()
+
+    assert result["booked"] is True
+    assert result["room"] is None
+    assert attendee_payload["attendees"] == [
+        {"type": "user", "user_id": "ou_dazhi"},
+        {"type": "user", "user_id": "ou_requester"},
+    ]
+
+
 def test_room_name_normalization_matches_chinese_parentheses_and_digits():
     rooms = [{"room_id": "omm_one", "name": "会议室（一）"}]
 

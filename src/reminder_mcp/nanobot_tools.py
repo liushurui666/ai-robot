@@ -83,9 +83,10 @@ class BookFeishuMeetingTool(Tool):
     def description(self) -> str:
         return (
             "Book a Feishu calendar meeting only when the current user explicitly asks to "
-            "book, reserve, or schedule it. Resolve named colleagues and a physical meeting "
-            "room, check all availability, create the event, invite the requester and "
-            "colleagues, and reserve the room. Times must be ISO-8601 with timezone. Use "
+            "book, reserve, or schedule it. Resolve named colleagues, optionally resolve a "
+            "physical meeting room, check relevant availability, create the event, and invite "
+            "the requester and colleagues. A room is optional: omit it when the user did not "
+            "request one or says no room is needed. Times must be ISO-8601 with timezone. Use "
             "30 minutes when the user gives no duration. Never claim success unless booked=true."
         )
 
@@ -98,7 +99,7 @@ class BookFeishuMeetingTool(Tool):
                     "items": {"type": "string", "minLength": 1},
                     "maxItems": 20,
                 },
-                "room": {"type": "string", "minLength": 1},
+                "room": {"type": "string", "default": ""},
                 "summary": {"type": "string", "minLength": 1, "maxLength": 500},
                 "start_time": {"type": "string", "minLength": 1},
                 "duration_minutes": {
@@ -108,15 +109,15 @@ class BookFeishuMeetingTool(Tool):
                     "default": 30,
                 },
             },
-            ["attendees", "room", "summary", "start_time"],
+            ["attendees", "summary", "start_time"],
         )
 
     async def execute(
         self,
         attendees: list[str],
-        room: str,
         summary: str,
         start_time: str,
+        room: str = "",
         duration_minutes: int = 30,
     ) -> str:
         sender_id, _, message_id = _request_identity()

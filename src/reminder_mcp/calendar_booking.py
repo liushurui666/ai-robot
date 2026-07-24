@@ -288,9 +288,9 @@ class FeishuCalendarBooker:
         requester_open_id: str,
         source_message_id: str,
         attendee_names: list[str],
-        room_name: str,
         summary: str,
         start_time: str,
+        room_name: str = "",
         duration_minutes: int = 30,
         timezone_name: str = "Asia/Shanghai",
     ) -> dict[str, Any]:
@@ -300,8 +300,8 @@ class FeishuCalendarBooker:
         attendee_names = [name.strip() for name in attendee_names if name.strip()]
         if not requester_open_id:
             raise PermissionError("requester identity is required")
-        if not summary or not room_name:
-            raise ValueError("summary and room_name must not be empty")
+        if not summary:
+            raise ValueError("summary must not be empty")
         if duration_minutes < 1 or duration_minutes > 1440:
             raise ValueError("duration_minutes must be between 1 and 1440")
         start = datetime.fromisoformat(start_time)
@@ -313,31 +313,34 @@ class FeishuCalendarBooker:
         if resolution_error:
             return resolution_error
 
-        rooms = self.match_rooms(await self.list_rooms(), room_name)
-        if not rooms:
-            return {
-                "booked": False,
-                "reason": "room_no_match",
-                "room": room_name,
-                "message": f"未找到会议室“{room_name}”",
-            }
-        if len(rooms) > 1:
-            return {
-                "booked": False,
-                "reason": "room_ambiguous",
-                "room": room_name,
-                "matches": [self._room_label(room) for room in rooms[:10]],
-            }
-        room = rooms[0]
-        status = room.get("status") or room.get("room_status") or {}
-        if isinstance(status, dict) and (
-            status.get("status") is False or status.get("schedule_status") is False
-        ):
-            return {
-                "booked": False,
-                "reason": "room_disabled",
-                "room": self._room_label(room),
-            }
+        room: dict[str, Any] | None = None
+        if room_name:
+            rooms = self.match_rooms(await self.list_rooms(), room_name)
+            if not rooms:
+                return {
+                    "booked": False,
+                    "reason": "room_no_match",
+                    "room": room_name,
+                    "message": f"未找到会议室“{room_name}”",
+                }
+            if len(rooms) > 1:
+                return {
+                    "booked": False,
+                    "reason": "room_ambiguous",
+                    "room": room_name,
+                    "matches": [self._room_label(item) for item in rooms[:10]],
+                }
+            room = rooms[0]
+            status = room.get("status") or room.get("room_status") or {}
+            if isinstance(status, dict) and (
+                status.get("status") is False
+                or status.get("schedule_status") is False
+            ):
+                return {
+                    "booked": False,
+                    "reason": "room_disabled",
+                    "room": self._room_label(room),
+                }
 
         participant_by_id = {
             str(user["open_id"]): self.directory._display_name(user)
@@ -355,9 +358,9 @@ class FeishuCalendarBooker:
             for user_id, busy in user_busy.items()
             if busy
         ]
-        room_id = str(room.get("room_id") or "")
-        room_busy = await self._room_busy(room_id, start, end)
-        if room_busy:
+        room_id = str(room.get("room_id") or "") if room else ""
+        room_busy = await self._room_busy(room_id, start, end) if room_id else []
+        if room and room_busy:
             conflicts.append(
                 {
                     "type": "room",
@@ -409,7 +412,8 @@ class FeishuCalendarBooker:
         attendee_payload = [
             {"type": "user", "user_id": user_id} for user_id in user_ids
         ]
-        attendee_payload.append({"type": "resource", "room_id": room_id})
+        if room_id:
+            attendee_payload.append({"type": "resource", "room_id": room_id})
         try:
             added = await self._request(
                 "POST",
@@ -419,15 +423,22 @@ class FeishuCalendarBooker:
                 json={"attendees": attendee_payload, "need_notification": True},
             )
             added_attendees = added.get("attendees") or []
-            booked_room = next(
-                (
-                    item
-                    for item in added_attendees
-                    if item.get("type") == "resource" and item.get("room_id") == room_id
-                ),
-                None,
+            booked_room = (
+                next(
+                    (
+                        item
+                        for item in added_attendees
+                        if item.get("type") == "resource"
+                        and item.get("room_id") == room_id
+                    ),
+                    None,
+                )
+                if room_id
+                else None
             )
-            if booked_room is None or booked_room.get("rsvp_status") == "decline":
+            if room_id and (
+                booked_room is None or booked_room.get("rsvp_status") == "decline"
+            ):
                 await self._delete_event(calendar_id, event_id)
                 return {
                     "booked": False,
@@ -447,7 +458,7 @@ class FeishuCalendarBooker:
             "start_time": start.isoformat(timespec="seconds"),
             "end_time": end.isoformat(timespec="seconds"),
             "duration_minutes": duration_minutes,
-            "room": self._room_label(room),
+            "room": self._room_label(room) if room else None,
             "attendees": [self.directory._display_name(user) for user in attendees],
             "room_status": booked_room.get("rsvp_status") if booked_room else None,
             "event_id": event_id,

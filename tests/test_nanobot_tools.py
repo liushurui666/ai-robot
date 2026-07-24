@@ -125,7 +125,6 @@ async def test_meeting_tool_binds_requester_identity(monkeypatch):
         result = json.loads(
             await BookFeishuMeetingTool().execute(
                 attendees=["大只"],
-                room="会议室一",
                 summary="与大只的会议",
                 start_time="2026-07-23T14:00:00+08:00",
             )
@@ -136,4 +135,5 @@ async def test_meeting_tool_binds_requester_identity(monkeypatch):
     assert result == {"booked": True}
     assert captured["requester_open_id"] == "ou_requester"
     assert captured["source_message_id"] == "om_booking"
+    assert captured["room_name"] == ""
     assert captured["duration_minutes"] == 30
