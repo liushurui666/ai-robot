@@ -19,10 +19,32 @@ structured digest tools.
    ask the user to send the request in their private chat with the assistant.
 4. Summarize only facts supported by returned entries. Deduplicate compacted summaries against
    exact turns and do not treat the current “please summarize” instruction as an activity.
-5. Prefer these sections when supported by evidence: completed, in progress, meetings and
-   coordination, reminders or pending actions, risks. Omit empty sections.
-6. Keep dates, people, project names, and outcomes precise. Distinguish a requested action from a
+5. For a weekly review, always use this exact section order and do not repeat headings:
+
+   ```text
+   一、本周主要工作业绩
+   1. ...
+   2. ...
+
+   当前存在问题：
+   1. ...
+
+   需要支持：
+   1. ...
+
+   二、下周工作主要开展
+   1. ...
+   2. ...
+   ```
+
+   Put confirmed completions, progress, meetings, and coordination outcomes under “本周主要工作业绩”.
+   Put unresolved blockers or risks under “当前存在问题”. Put explicit help, decisions, resources,
+   or cross-team coordination needed under “需要支持”. Put future plans, scheduled follow-ups, and
+   pending actions under “下周工作主要开展”.
+6. Keep all four weekly-review blocks even when one has no evidence. In that block write
+   “暂无从本次对话记录中提炼出的内容”; never invent an issue, support request, or next-week plan.
+7. Keep dates, people, project names, and outcomes precise. Distinguish a requested action from a
    confirmed successful outcome.
-7. If `truncated=true`, state that the result covers only the returned portion. If `count=0`, say
+8. If `truncated=true`, state that the result covers only the returned portion. If `count=0`, say
    that this private conversation has no retained entries in the requested range; do not claim
    that all company systems or all of the user's work have no records.
